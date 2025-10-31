@@ -10,5 +10,8 @@ Rails.application.routes.draw do
 
   namespace :mcp do
     post "weather", to: "weather#create"
+    # MCP HTTP+SSE (legacy-style) endpoints for remote MCP clients
+    get  "sse", to: "sse#stream"
+    post "sse/messages", to: "sse#messages"
   end
 end

@@ -92,3 +92,33 @@ curl -X POST http://localhost:3000/mcp/weather \
 - Si prefieres no enviar `city`, usa `lat` y `lon`.
 - El `prompt` no invoca ningún modelo; solo ajusta el `textSummary` y se retorna como metadato.
 - CORS está habilitado para facilitar consumo desde clientes MCP y frontends.
+
+## MCP vía SSE (HTTP+SSE)
+
+Además del endpoint HTTP anterior, la API expone un transporte MCP compatible con SSE para clientes como n8n, Claude Desktop, etc.
+
+- Endpoint SSE (GET): `GET /mcp/sse`
+  - Responde con `text/event-stream` y mantiene la conexión abierta.
+  - Devuelve un `Mcp-Session-Id` en la respuesta; el cliente debe reutilizarlo en los `POST` subsecuentes.
+- Mensajes (POST): `POST /mcp/sse/messages`
+  - Recibe solicitudes JSON-RPC 2.0 (`initialize`, `tools/list`, `tools/call`).
+  - Si se incluye `Mcp-Session-Id` en la cabecera, la respuesta se envía por el stream SSE y el `POST` retorna `202 Accepted`.
+  - Si no hay sesión SSE, el servidor devuelve la respuesta JSON directamente.
+
+### Herramienta disponible
+- `weather`: obtiene clima actual desde OpenWeatherMap.
+  - `inputSchema`: `apiKey` (string, requerido), `prompt` (string), `city` (string) o (`lat`+`lon` numéricos), `units` (`metric|imperial|standard`), `lang` (por defecto `es`).
+
+### Configuración en n8n (MCP Client Tool)
+- En el nodo “MCP Client Tool”: apunta el campo “SSE Endpoint” a `http(s)://<tu_dominio>/mcp/sse`.
+- Autenticación: si necesitas, usa “Bearer” o un header genérico.
+- En el agente, incluye la herramienta `weather` y pásale argumentos como `{ "apiKey": "...", "city": "Madrid", "units": "metric", "lang": "es" }`.
+
+### Seguridad y compatibilidad
+- Valida el header `Origin` si expones el servidor públicamente (recomendado por el protocolo MCP) y añade autenticación.
+- Esta implementación sigue el patrón HTTP+SSE (protocolo 2024-11-05). Para el transporte moderno “Streamable HTTP” (protocolo 2025-03-26), se puede añadir un endpoint único que soporte GET (SSE) y POST (JSON-RPC) en la misma ruta.
+
+Referencias:
+- Transports – Model Context Protocol (Streamable HTTP y SSE) [modelcontextprotocol.io/specification/2025-03-26/basic/transports]
+- Guía práctica de MCP y compatibilidad HTTP+SSE [simplescraper.io/blog/how-to-mcp]
+- Explicación de SSE en MCP y arquitectura de doble endpoint [mcpevals.io/blog/mcp-server-side-events-explained]
