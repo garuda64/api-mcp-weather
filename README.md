@@ -17,6 +17,34 @@ API en Rails enfocada en MCP que consulta OpenWeatherMap usando la `apiKey` envi
 3. Probar salud:
    - `curl http://localhost:3000/up`
 
+### Producción: RAILS_MASTER_KEY
+En producción, Rails necesita descifrar `config/credentials.yml.enc` para obtener `secret_key_base`. Debes proporcionar la clave maestra vía `RAILS_MASTER_KEY` (contenido de `config/master.key`).
+
+- PowerShell (Windows):
+  - Cargar la clave maestra en la sesión:
+    - ``$env:RAILS_MASTER_KEY = (Get-Content -Raw .\config\master.key)``
+  - Ejecutar el contenedor en producción:
+    - ``docker run -d -p 80:80 --name api_mcp_weather -e RAILS_MASTER_KEY=$env:RAILS_MASTER_KEY api_mcp_weather``
+
+- Linux/macOS:
+  - ``docker run -d -p 80:80 --name api_mcp_weather -e RAILS_MASTER_KEY="$(cat config/master.key)" api_mcp_weather``
+
+- Docker Compose (ejemplo):
+```
+services:
+  api:
+    image: api_mcp_weather
+    ports:
+      - "80:80"
+    environment:
+      RAILS_MASTER_KEY: ${RAILS_MASTER_KEY}
+```
+  - Define `RAILS_MASTER_KEY` en tu `.env` o gestor de secretos de la plataforma.
+
+Si no cuentas con `config/master.key`, genera credentials y clave maestra:
+- `bin/rails credentials:edit` (en tu máquina de desarrollo) creará `config/master.key` y actualizará `config/credentials.yml.enc` con `secret_key_base`.
+- Nunca publiques `config/master.key` ni la hornees en la imagen; pásala como variable/secreto en producción.
+
 ### Opción B: Local (si bundler/gems están OK)
 1. Instalar dependencias:
    - `bundle install`

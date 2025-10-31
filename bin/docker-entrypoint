@@ -1,5 +1,13 @@
 #!/bin/bash -e
 
+# Fail fast in production if secrets are missing
+if [ "${RAILS_ENV}" = "production" ]; then
+  if [ -z "${RAILS_MASTER_KEY}" ] && [ -z "${SECRET_KEY_BASE}" ] && [ ! -f "/rails/config/master.key" ]; then
+    echo "ERROR: Falta secreto para producción. Define RAILS_MASTER_KEY (contenido de config/master.key) o SECRET_KEY_BASE." >&2
+    exit 1
+  fi
+fi
+
 # If running the rails server then create or migrate existing database
 if [ "${@: -2:1}" == "./bin/rails" ] && [ "${@: -1:1}" == "server" ]; then
   ./bin/rails db:prepare
