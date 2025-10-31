@@ -1,21 +1,20 @@
 require "securerandom"
 
 module Mcp
-  class SseController < ApplicationController
+  class StreamController < ApplicationController
     include ActionController::Live
 
-    # GET /mcp/sse — open SSE stream for MCP HTTP+SSE transport
+    # GET /mcp/stream — open HTTP streaming (NDJSON) transport
     def stream
-      response.headers["Content-Type"] = "text/event-stream"
+      response.headers["Content-Type"] = "application/x-ndjson"
       response.headers["Cache-Control"] = "no-cache"
       response.headers["X-Accel-Buffering"] = "no" # for Nginx
 
-      # Simple origin validation (optional hardening)
       origin = request.headers["Origin"]
       if origin.present?
         host = request.base_url
         unless origin.start_with?(host)
-          response.stream.write(": origin rejected\n\n")
+          write_json_line(response.stream, { event: "origin-rejected" })
           response.stream.close
           head :forbidden and return
         end
@@ -27,12 +26,12 @@ module Mcp
       Mcp::SessionRegistry.register(session_id, response.stream)
 
       # Announce session start
-      sse_event(response.stream, "mcp-session", { sessionId: session_id })
+      write_json_line(response.stream, { event: "mcp-session", sessionId: session_id })
 
       # Keep the connection alive
       begin
         loop do
-          response.stream.write(": keepalive\n\n")
+          write_json_line(response.stream, { event: "keepalive", ts: Time.now.utc.iso8601 })
           sleep 20
         end
       rescue IOError
@@ -43,7 +42,7 @@ module Mcp
       end
     end
 
-    # POST /mcp/sse/messages — handle JSON-RPC and push responses to SSE stream
+    # POST /mcp/stream/messages — handle JSON-RPC and push responses to stream
     def messages
       session_id = request.headers["Mcp-Session-Id"].presence
       payload = request.raw_post.to_s
@@ -94,7 +93,7 @@ module Mcp
 
       if session_id && (stream = Mcp::SessionRegistry.fetch(session_id))
         begin
-          sse_event(stream, "message", jsonrpc_response)
+          write_json_line(stream, jsonrpc_response)
           head :accepted and return
         rescue IOError, ActionController::Live::ClientDisconnected
           # Stream is gone; fall back to direct JSON response
@@ -106,9 +105,8 @@ module Mcp
 
     private
 
-    def sse_event(stream, event_name, payload)
-      stream.write("event: #{event_name}\n")
-      stream.write("data: #{payload.to_json}\n\n")
+    def write_json_line(stream, payload)
+      stream.write(payload.to_json + "\n")
     end
 
     def time_tool_descriptor
@@ -145,9 +143,5 @@ module Mcp
         { type: "text", text: text }
       ]
     end
-
-    # No weather normalization needed for time tool
-    # (Intentionally removed)
-    def normalize_for_ai(*); end
   end
 end

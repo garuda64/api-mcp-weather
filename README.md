@@ -1,15 +1,15 @@
-# API MCP Weather (Rails)
+# MCP Time Server (Rails)
 
-API en Rails enfocada en MCP que consulta OpenWeatherMap usando la `apiKey` enviada y opcionalmente un `prompt`, devolviendo una respuesta JSON normalizada, apta para modelos de IA.
+Servidor MCP mínimo compatible con el nodo “MCP Client Tool” de n8n. Expone un transporte HTTP+SSE y una herramienta `time` que devuelve la hora actual en UTC.
 
 ## Requisitos
-- Ruby 3.3 (en contenedor se usa la versión definida en `Dockerfile`).
+- Ruby 3.3 (la imagen usa la versión definida en `Dockerfile`).
 - Bundler.
-- Docker opcional para evitar problemas de gems en Windows.
+- Docker opcional (recomendado en Windows).
 
 ## Puesta en marcha
 
-### Opción A: Docker (recomendada en Windows)
+### Opción A: Docker (recomendada)
 1. Construir la imagen:
    - `docker build -t api_mcp_weather .`
 2. Ejecutar el contenedor:
@@ -18,17 +18,13 @@ API en Rails enfocada en MCP que consulta OpenWeatherMap usando la `apiKey` envi
    - `curl http://localhost:3000/up`
 
 ### Producción: RAILS_MASTER_KEY
-En producción, Rails necesita descifrar `config/credentials.yml.enc` para obtener `secret_key_base`. Debes proporcionar la clave maestra vía `RAILS_MASTER_KEY` (contenido de `config/master.key`).
+Rails en producción necesita descifrar `config/credentials.yml.enc` para obtener `secret_key_base`. Proporciona la clave maestra vía `RAILS_MASTER_KEY` (contenido de `config/master.key`).
 
 - PowerShell (Windows):
-  - Cargar la clave maestra en la sesión:
-    - ``$env:RAILS_MASTER_KEY = (Get-Content -Raw .\config\master.key)``
-  - Ejecutar el contenedor en producción:
-    - ``docker run -d -p 80:80 --name api_mcp_weather -e RAILS_MASTER_KEY=$env:RAILS_MASTER_KEY api_mcp_weather``
-
+  - ``$env:RAILS_MASTER_KEY = (Get-Content -Raw .\config\master.key)``
+  - ``docker run -d -p 80:80 --name api_mcp_weather -e RAILS_MASTER_KEY=$env:RAILS_MASTER_KEY api_mcp_weather``
 - Linux/macOS:
   - ``docker run -d -p 80:80 --name api_mcp_weather -e RAILS_MASTER_KEY="$(cat config/master.key)" api_mcp_weather``
-
 - Docker Compose (ejemplo):
 ```
 services:
@@ -39,86 +35,73 @@ services:
     environment:
       RAILS_MASTER_KEY: ${RAILS_MASTER_KEY}
 ```
-  - Define `RAILS_MASTER_KEY` en tu `.env` o gestor de secretos de la plataforma.
 
-Si no cuentas con `config/master.key`, genera credentials y clave maestra:
-- `bin/rails credentials:edit` (en tu máquina de desarrollo) creará `config/master.key` y actualizará `config/credentials.yml.enc` con `secret_key_base`.
-- Nunca publiques `config/master.key` ni la hornees en la imagen; pásala como variable/secreto en producción.
-
-### Opción B: Local (si bundler/gems están OK)
-1. Instalar dependencias:
-   - `bundle install`
-2. Levantar servidor:
-   - `bin/rails server`
-
-## Endpoint MCP
-
-- Método: `POST`
-- Ruta: `/mcp/weather`
-- Cuerpo (JSON):
-```
-{
-  "apiKey": "<tu_api_key_de_openweathermap>",
-  "prompt": "opcional, texto libre",
-  "city": "Madrid",            // alternativa: usar lat/lon
-  "lat": 40.4168,
-  "lon": -3.7038,
-  "units": "metric",           // opciones: metric | imperial | standard
-  "lang": "es"                 // por defecto 'es'
-}
-```
-
-### Respuesta
-- JSON normalizado con campos pensados para consumo por LLMs:
-  - `schemaVersion`, `provider`, `query`, `location`
-  - `current` (temperatura, sensación, humedad, presión, viento, nubes)
-  - `meta` (fuente, unidades, timestamp)
-  - `aiContext` (pares clave/valor útiles)
-  - `textSummary` (resumen determinístico, opcionalmente usando el `prompt`)
-
-### Ejemplo de llamada
-
-```
-curl -X POST http://localhost:3000/mcp/weather \
-  -H "Content-Type: application/json" \
-  -d '{
-    "apiKey":"<API_KEY>",
-    "city":"Buenos Aires",
-    "prompt":"dame resumen breve"
-  }'
-```
-
-## Notas
-- Si prefieres no enviar `city`, usa `lat` y `lon`.
-- El `prompt` no invoca ningún modelo; solo ajusta el `textSummary` y se retorna como metadato.
-- CORS está habilitado para facilitar consumo desde clientes MCP y frontends.
-
-## MCP vía SSE (HTTP+SSE)
-
-Además del endpoint HTTP anterior, la API expone un transporte MCP compatible con SSE para clientes como n8n, Claude Desktop, etc.
+## MCP vía HTTP+SSE
 
 - Endpoint SSE (GET): `GET /mcp/sse`
-  - Responde con `text/event-stream` y mantiene la conexión abierta.
-  - Devuelve un `Mcp-Session-Id` en la respuesta; el cliente debe reutilizarlo en los `POST` subsecuentes.
+  - Devuelve `text/event-stream` y mantiene la conexión abierta.
+  - Incluye `Mcp-Session-Id` en la respuesta; úsalo en los `POST`.
 - Mensajes (POST): `POST /mcp/sse/messages`
-  - Recibe solicitudes JSON-RPC 2.0 (`initialize`, `tools/list`, `tools/call`).
-  - Si se incluye `Mcp-Session-Id` en la cabecera, la respuesta se envía por el stream SSE y el `POST` retorna `202 Accepted`.
-  - Si no hay sesión SSE, el servidor devuelve la respuesta JSON directamente.
+  - Recibe solicitudes JSON-RPC 2.0: `initialize`, `tools/list`, `tools/call`.
+  - Con `Mcp-Session-Id` en el header responde vía SSE y retorna `202 Accepted`.
+  - Sin SSE retorna la respuesta JSON directamente con `200 OK`.
 
 ### Herramienta disponible
-- `weather`: obtiene clima actual desde OpenWeatherMap.
-  - `inputSchema`: `apiKey` (string, requerido), `prompt` (string), `city` (string) o (`lat`+`lon` numéricos), `units` (`metric|imperial|standard`), `lang` (por defecto `es`).
+- `time`: devuelve la hora actual en UTC.
+  - `inputSchema`: objeto vacío con `format` opcional (`iso8601 | rfc2822 | epoch`).
+  - Respuesta de `tools/call` (contenido):
+    - `json`: `{ utcIso, epochSeconds, rfc2822 }`
+    - `text`: `"Hora UTC: <ISO>"` (o RFC/epoch según `format`).
 
-### Configuración en n8n (MCP Client Tool)
-- En el nodo “MCP Client Tool”: apunta el campo “SSE Endpoint” a `http(s)://<tu_dominio>/mcp/sse`.
-- Autenticación: si necesitas, usa “Bearer” o un header genérico.
-- En el agente, incluye la herramienta `weather` y pásale argumentos como `{ "apiKey": "...", "city": "Madrid", "units": "metric", "lang": "es" }`.
+## Ejemplos
 
-### Seguridad y compatibilidad
-- Valida el header `Origin` si expones el servidor públicamente (recomendado por el protocolo MCP) y añade autenticación.
-- Esta implementación sigue el patrón HTTP+SSE (protocolo 2024-11-05). Para el transporte moderno “Streamable HTTP” (protocolo 2025-03-26), se puede añadir un endpoint único que soporte GET (SSE) y POST (JSON-RPC) en la misma ruta.
+### 1) Abrir el stream SSE
+```
+curl -i -N http://localhost:3000/mcp/sse
+```
+Copiar el `Mcp-Session-Id` del header/event.
 
-Referencias:
-- Transports – Model Context Protocol (Streamable HTTP y SSE) [modelcontextprotocol.io/specification/2025-03-26/basic/transports]
-- Guía práctica de MCP y compatibilidad HTTP+SSE [simplescraper.io/blog/how-to-mcp]
-- Explicación de SSE en MCP y arquitectura de doble endpoint [mcpevals.io/blog/mcp-server-side-events-explained]
+### 2) Inicializar y listar herramientas (vía SSE)
+```
+curl -X POST http://localhost:3000/mcp/sse/messages \
+  -H "Content-Type: application/json" \
+  -H "Mcp-Session-Id: <SID>" \
+  -d '{"jsonrpc":"2.0","id":"1","method":"initialize"}'
+
+curl -X POST http://localhost:3000/mcp/sse/messages \
+  -H "Content-Type: application/json" \
+  -H "Mcp-Session-Id: <SID>" \
+  -d '{"jsonrpc":"2.0","id":"2","method":"tools/list"}'
+```
+
+### 3) Llamar la herramienta `time` (vía SSE)
+```
+curl -X POST http://localhost:3000/mcp/sse/messages \
+  -H "Content-Type: application/json" \
+  -H "Mcp-Session-Id: <SID>" \
+  -d '{"jsonrpc":"2.0","id":"3","method":"tools/call","params":{"name":"time","arguments":{"format":"iso8601"}}}'
+```
+
+### 4) Fallback JSON (sin SSE)
+```
+curl -X POST http://localhost:3000/mcp/sse/messages \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":"A","method":"initialize"}'
+
+curl -X POST http://localhost:3000/mcp/sse/messages \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":"B","method":"tools/list"}'
+
+curl -X POST http://localhost:3000/mcp/sse/messages \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":"C","method":"tools/call","params":{"name":"time","arguments":{"format":"epoch"}}}'
+```
+
+## n8n (MCP Client Tool)
+- Campo “SSE Endpoint”: `http://localhost:3000/mcp/sse`.
+- El cliente usará `Mcp-Session-Id` del stream y enviará `POST` a `/mcp/sse/messages`.
+- La herramienta `time` no requiere credenciales.
+
+## Seguridad
+- Considera validar `Origin` y añadir autenticación si expones públicamente.
+- Este servidor mantiene sesiones en memoria (no apto para múltiples procesos sin un registro compartido).
