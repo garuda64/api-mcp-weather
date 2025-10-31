@@ -75,4 +75,6 @@ ENTRYPOINT ["/rails/bin/docker-entrypoint"]
 
 # Start server via Thruster by default, this can be overwritten at runtime
 EXPOSE 80
+# Nota: el entrypoint autogenera un SECRET_KEY_BASE efímero si faltan secretos.
+# Para producción real, provee RAILS_MASTER_KEY o SECRET_KEY_BASE mediante secretos.
 CMD ["./bin/thrust", "./bin/rails", "server"]
