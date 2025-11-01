@@ -1,6 +1,6 @@
 # MCP Time Server (Rails)
 
-Servidor MCP mínimo compatible con el nodo “MCP Client Tool” de n8n. Expone un transporte HTTP+SSE y una herramienta `time` que devuelve la hora actual en UTC.
+Servidor MCP mínimo compatible con transporte HTTP+SSE y una herramienta `get_utc_time` que devuelve la hora actual en UTC.
 
 ## Requisitos
 - Ruby 3.3 (la imagen usa la versión definida en `Dockerfile`).
@@ -38,69 +38,69 @@ services:
 
 ## MCP vía HTTP+SSE
 
-- Endpoint SSE (GET): `GET /mcp/sse`
+- Endpoint SSE (GET): `GET /mcp`
   - Devuelve `text/event-stream` y mantiene la conexión abierta.
+  - Envía keepalive `: ping` cada 15 segundos.
   - Incluye `Mcp-Session-Id` en la respuesta; úsalo en los `POST`.
-- Mensajes (POST): `POST /mcp/sse/messages`
+- Mensajes (POST): `POST /mcp/messages`
   - Recibe solicitudes JSON-RPC 2.0: `initialize`, `tools/list`, `tools/call`.
-  - Con `Mcp-Session-Id` en el header responde vía SSE y retorna `202 Accepted`.
-  - Sin SSE retorna la respuesta JSON directamente con `200 OK`.
+  - Con `Mcp-Session-Id` en el header, responde vía SSE y retorna `202 Accepted`.
+  - Sin SSE, retorna la respuesta JSON directamente con `200 OK`.
 
 ### Herramienta disponible
-- `time`: devuelve la hora actual en UTC.
-  - `inputSchema`: objeto vacío con `format` opcional (`iso8601 | rfc2822 | epoch`).
+- `get_utc_time`: devuelve la hora actual en UTC (ISO 8601).
+  - `inputSchema`: objeto vacío.
   - Respuesta de `tools/call` (contenido):
-    - `json`: `{ utcIso, epochSeconds, rfc2822 }`
-    - `text`: `"Hora UTC: <ISO>"` (o RFC/epoch según `format`).
+    - `text`: `"<ISO8601>"`.
 
 ## Ejemplos
 
 ### 1) Abrir el stream SSE
 ```
-curl -i -N http://localhost:3000/mcp/sse
+curl -i -N http://localhost:3000/mcp
 ```
-Copiar el `Mcp-Session-Id` del header/event.
+Copiar el `Mcp-Session-Id` del header.
 
 ### 2) Inicializar y listar herramientas (vía SSE)
 ```
-curl -X POST http://localhost:3000/mcp/sse/messages \
+curl -X POST http://localhost:3000/mcp/messages \
   -H "Content-Type: application/json" \
   -H "Mcp-Session-Id: <SID>" \
   -d '{"jsonrpc":"2.0","id":"1","method":"initialize"}'
 
-curl -X POST http://localhost:3000/mcp/sse/messages \
+curl -X POST http://localhost:3000/mcp/messages \
   -H "Content-Type: application/json" \
   -H "Mcp-Session-Id: <SID>" \
   -d '{"jsonrpc":"2.0","id":"2","method":"tools/list"}'
 ```
 
-### 3) Llamar la herramienta `time` (vía SSE)
+### 3) Llamar la herramienta `get_utc_time` (vía SSE)
 ```
-curl -X POST http://localhost:3000/mcp/sse/messages \
+curl -X POST http://localhost:3000/mcp/messages \
   -H "Content-Type: application/json" \
   -H "Mcp-Session-Id: <SID>" \
-  -d '{"jsonrpc":"2.0","id":"3","method":"tools/call","params":{"name":"time","arguments":{"format":"iso8601"}}}'
+  -d '{"jsonrpc":"2.0","id":"3","method":"tools/call","params":{"name":"get_utc_time","arguments":{}}}'
 ```
 
 ### 4) Fallback JSON (sin SSE)
 ```
-curl -X POST http://localhost:3000/mcp/sse/messages \
+curl -X POST http://localhost:3000/mcp/messages \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","id":"A","method":"initialize"}'
 
-curl -X POST http://localhost:3000/mcp/sse/messages \
+curl -X POST http://localhost:3000/mcp/messages \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","id":"B","method":"tools/list"}'
 
-curl -X POST http://localhost:3000/mcp/sse/messages \
+curl -X POST http://localhost:3000/mcp/messages \
   -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":"C","method":"tools/call","params":{"name":"time","arguments":{"format":"epoch"}}}'
+  -d '{"jsonrpc":"2.0","id":"C","method":"tools/call","params":{"name":"get_utc_time","arguments":{}}}'
 ```
 
 ## n8n (MCP Client Tool)
-- Campo “SSE Endpoint”: `http://localhost:3000/mcp/sse`.
-- El cliente usará `Mcp-Session-Id` del stream y enviará `POST` a `/mcp/sse/messages`.
-- La herramienta `time` no requiere credenciales.
+- Campo “SSE Endpoint”: `http://localhost:3000/mcp`.
+- El cliente usará `Mcp-Session-Id` del stream y enviará `POST` a `/mcp/messages`.
+- La herramienta `get_utc_time` no requiere credenciales.
 
 ## Seguridad
 - Considera validar `Origin` y añadir autenticación si expones públicamente.

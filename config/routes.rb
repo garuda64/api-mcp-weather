@@ -8,9 +8,7 @@ Rails.application.routes.draw do
   # Defines the root path route ("/")
   # root "posts#index"
 
-  namespace :mcp do
-    # MCP HTTP streaming (NDJSON) endpoints
-    get  "stream", to: "stream#stream"
-    post "stream/messages", to: "stream#messages"
-  end
+  # MCP SSE endpoint and optional messages handler
+  get  "mcp", to: "mcp#stream"
+  post "mcp/messages", to: "mcp#messages"
 end

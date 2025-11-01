@@ -36,19 +36,25 @@ RUN apt-get update -qq && \
     rm -rf /var/lib/apt/lists /var/cache/apt/archives
 
 # Install application gems
+
+# Disable Bundler frozen/deployment mode during build so Gemfile.lock can update
+ENV BUNDLE_DEPLOYMENT="0"
+RUN bundle config set frozen false
+
+# Copy gem manifests first to leverage Docker layer caching and ensure lockfile updates
+COPY Gemfile Gemfile.lock ./
 COPY Gemfile Gemfile.lock vendor ./
 
 RUN bundle install && \
-    rm -rf ~/.bundle/ "${BUNDLE_PATH}"/ruby/*/cache "${BUNDLE_PATH}"/ruby/*/bundler/gems/*/.git && \
-    # -j 1 disable parallel compilation to avoid a QEMU bug: https://github.com/rails/bootsnap/issues/495
-    bundle exec bootsnap precompile -j 1 --gemfile
+    rm -rf ~/.bundle/ "${BUNDLE_PATH}"/ruby/*/cache "${BUNDLE_PATH}"/ruby/*/bundler/gems/*/.git
+
+# Preserve the updated lockfile to override repository version later
+RUN cp Gemfile.lock /tmp/Gemfile.lock.built
 
 # Copy application code
 COPY . .
 
-# Precompile bootsnap code for faster boot times.
-# -j 1 disable parallel compilation to avoid a QEMU bug: https://github.com/rails/bootsnap/issues/495
-RUN bundle exec bootsnap precompile -j 1 app/ lib/
+# Removed bootsnap precompilation (bootsnap gem not used)
 
 # Adjust binfiles to be executable on Linux
 RUN chmod +x bin/* && \
@@ -62,6 +68,7 @@ RUN chmod +x bin/* && \
 FROM base
 
 # Run and own only the runtime files as a non-root user for security
+ENV BUNDLE_DEPLOYMENT="1"
 RUN groupadd --system --gid 1000 rails && \
     useradd rails --uid 1000 --gid 1000 --create-home --shell /bin/bash
 USER 1000:1000
@@ -70,11 +77,14 @@ USER 1000:1000
 COPY --chown=rails:rails --from=build "${BUNDLE_PATH}" "${BUNDLE_PATH}"
 COPY --chown=rails:rails --from=build /rails /rails
 
+# Override repository Gemfile.lock with the one generated during build
+COPY --chown=rails:rails --from=build /tmp/Gemfile.lock.built /rails/Gemfile.lock
+
 # Entrypoint prepares the database.
 ENTRYPOINT ["/rails/bin/docker-entrypoint"]
 
-# Start server via Thruster by default, this can be overwritten at runtime
+# Start server via Rails Puma directly, can be overwritten at runtime
 EXPOSE 80
 # Nota: el entrypoint autogenera un SECRET_KEY_BASE efímero si faltan secretos.
 # Para producción real, provee RAILS_MASTER_KEY o SECRET_KEY_BASE mediante secretos.
-CMD ["./bin/thrust", "./bin/rails", "server"]
+CMD ["./bin/rails", "server", "-b", "0.0.0.0", "-p", "80"]
