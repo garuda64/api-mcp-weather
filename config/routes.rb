@@ -10,5 +10,7 @@ Rails.application.routes.draw do
 
   # MCP SSE endpoint and optional messages handler
   get  "mcp", to: "mcp#stream"
+  # Acepta POST en /mcp como alias de /mcp/messages para compatibilidad
+  post "mcp", to: "mcp#messages"
   post "mcp/messages", to: "mcp#messages"
 end
