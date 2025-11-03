@@ -22,6 +22,8 @@ class McpController < ApplicationController
 
     begin
       # Initial event to signal readiness (optional for clients)
+      # Advise client reconnection delay (in ms) per SSE conventions
+      response.stream.write("retry: 15000\n")
       response.stream.write("event: ready\n")
       response.stream.write("data: {\"endpoint\":\"/mcp/messages\"}\n\n")
 
@@ -46,11 +48,13 @@ class McpController < ApplicationController
     begin
       request_obj = JSON.parse(payload)
     rescue JSON::ParserError
-      render json: { error: { code: "invalid_json", message: "Body must be valid JSON" } }, status: :bad_request and return
+      # JSON-RPC 2.0 Parse error (-32700). Return 200 with error object.
+      render json: { jsonrpc: "2.0", id: nil, error: { code: -32700, message: "Parse error" } }, status: :ok and return
     end
 
     unless request_obj.is_a?(Hash) && request_obj["jsonrpc"] == "2.0" && request_obj.key?("method")
-      render json: { error: { code: "invalid_request", message: "Must be a JSON-RPC 2.0 request" } }, status: :bad_request and return
+      # JSON-RPC 2.0 Invalid Request (-32600). Return 200 with error object.
+      render json: { jsonrpc: "2.0", id: request_obj.is_a?(Hash) ? request_obj["id"] : nil, error: { code: -32600, message: "Invalid Request" } }, status: :ok and return
     end
 
     response_obj = McpServer.handle_json_rpc(request_obj)
